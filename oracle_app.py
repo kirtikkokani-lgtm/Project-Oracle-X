@@ -7,13 +7,38 @@ import requests
 from bs4 import BeautifulSoup
 from sklearn.linear_model import LinearRegression
 import numpy as np
+import sqlite3
+from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Oracle-X Pro", layout="wide")
+st.set_page_config(page_title="Oracle-X Pro (DB)", layout="wide")
 analyzer = SentimentIntensityAnalyzer()
 
-# --- UTILITY FUNCTIONS ---
+# --- DATABASE SETUP ---
+def init_db():
+    conn = sqlite3.connect('oracle_data.db')
+    c = conn.cursor()
+    # सिग्नल्स सेव्ह करण्यासाठी टेबल
+    c.execute('''CREATE TABLE IF NOT EXISTS signals 
+                 (timestamp TEXT, ticker TEXT, price REAL, rsi REAL, signal TEXT)''')
+    conn.commit()
+    conn.close()
 
+def save_signal_to_db(ticker, price, rsi, signal):
+    try:
+        conn = sqlite3.connect('oracle_data.db')
+        c = conn.cursor()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute("INSERT INTO signals VALUES (?, ?, ?, ?, ?)", (now, ticker, price, rsi, signal))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+
+# डेटाबेस तयार करणे
+init_db()
+
+# --- UTILITY FUNCTIONS ---
 def calculate_rsi(data, window=14):
     delta = data.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
@@ -39,7 +64,7 @@ def predict_next_day(df):
     return float(pred[0].item())
 
 # --- UI LAYOUT ---
-st.title("🔮 Oracle-X: Institutional Intelligence")
+st.title("🔮 Oracle-X: Database Integrated Intelligence")
 st.sidebar.header("🎛️ Control Panel")
 
 # Inputs
@@ -49,12 +74,10 @@ company = st.sidebar.text_input("Company Name", value="Reliance Industries")
 # Watchlist for Scanner
 watchlist = ["RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "TATAMOTORS.NS", "ICICIBANK.NS", "SBIN.NS", "ITC.NS", "ADANIENT.NS", "BHARTIARTL.NS"]
 
-# --- ACTION 1: SINGLE STOCK DEEP SCAN ---
-if st.sidebar.button("🔍 Deep Analysis (Selected Stock)"):
+# --- ACTION 1: SINGLE STOCK SCAN ---
+if st.sidebar.button("🔍 Deep Analysis"):
     df = yf.download(ticker, period="6mo", interval="1d", progress=False)
     df['RSI'] = calculate_rsi(df['Close'])
-    df['EMA20'] = df['Close'].ewm(span=20, adjust=False).mean()
-    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
     
     # Sentiment & Prediction
     headlines = get_live_news(company)
@@ -64,53 +87,54 @@ if st.sidebar.button("🔍 Deep Analysis (Selected Stock)"):
     rsi_val = float(df['RSI'].iloc[-1])
 
     # Plot
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA20'], line=dict(color='orange', width=1.5), name="EMA 20"))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='blue', width=1.5), name="EMA 50"))
+    fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
     st.plotly_chart(fig, use_container_width=True)
 
-    # Metrics
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Current Price", f"₹{curr_price:.2f}")
-    c2.metric("RSI (14D)", f"{rsi_val:.1f}")
-    c3.metric("Sentiment Score", f"{sentiment:.2f}")
-
-    # Logic
-    st.divider()
+    # Logic & Database Save
+    signal = "NEUTRAL ⏳"
     if rsi_val < 40 and sentiment > 0.1:
-        st.success(f"🚀 **Signal: STRONG BUY** | Predicted Target: ₹{pred_price:.2f}")
+        signal = "STRONG BUY 🚀"
+        st.success(f"{signal} | Target: ₹{pred_price:.2f}")
     elif rsi_val > 65 and sentiment < -0.1:
-        st.error(f"🔥 **Signal: STRONG SELL** | Predicted Target: ₹{pred_price:.2f}")
-    else:
-        st.info("⏳ **Signal: NEUTRAL** | Market is stabilizing.")
+        signal = "STRONG SELL 🔥"
+        st.error(f"{signal} | Target: ₹{pred_price:.2f}")
+    
+    save_signal_to_db(ticker, curr_price, rsi_val, signal)
 
 # --- ACTION 2: MULTI-STOCK SCANNER ---
 if st.sidebar.button("🚀 Run Multi-Stock Scanner"):
-    st.subheader("📊 Market-Wide Opportunities (Watchlist)")
+    st.subheader("📊 Market-Wide Opportunities")
     results = []
     
-    progress_bar = st.progress(0)
-    for index, t in enumerate(watchlist):
+    for t in watchlist:
         try:
             d = yf.download(t, period="1mo", interval="1d", progress=False)
             d['RSI'] = calculate_rsi(d['Close'])
-            l_price = d['Close'].iloc[-1]
-            l_rsi = d['RSI'].iloc[-1]
+            l_price = float(d['Close'].iloc[-1])
+            l_rsi = float(d['RSI'].iloc[-1])
             
-            sig = "WAIT ⏳"
+            sig = "HOLD 🟡"
             if l_rsi < 38: sig = "BUY 🚀"
             elif l_rsi > 68: sig = "SELL 🔥"
             
-            results.append({"Ticker": t, "Price": f"₹{l_price:.2f}", "RSI": f"{l_rsi:.1;f}", "Signal": sig})
+            results.append({"Ticker": t, "Price": f"₹{l_price:.2f}", "RSI": f"{l_rsi:.1f}", "Signal": sig})
+            
+            # महत्त्वाचे सिग्नल्स डेटाबेसमध्ये सेव्ह करा
+            if sig != "HOLD 🟡":
+                save_signal_to_db(t, l_price, l_rsi, sig)
         except: continue
-        progress_bar.progress((index + 1) / len(watchlist))
 
-    res_df = pd.DataFrame(results)
-    
-    # Styling Table
-    def highlight_signal(val):
-        color = 'green' if 'BUY' in val else 'red' if 'SELL' in val else 'black'
-        return f'color: {color}; font-weight: bold'
+    st.table(pd.DataFrame(results))
 
-    st.table(res_df) # सोप्या मांडणीसाठी table वापरला आहे
+# --- ACTION 3: VIEW HISTORY ---
+st.divider()
+st.header("📜 Trading Signals History")
+if st.button("🔄 Refresh History"):
+    conn = sqlite3.connect('oracle_data.db')
+    try:
+        history_df = pd.read_sql_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 20", conn)
+        st.dataframe(history_df, use_container_width=True)
+    except:
+        st.write("अजून कोणताही डेटा सेव्ह झालेला नाही.")
+    finally:
+        conn.close()
