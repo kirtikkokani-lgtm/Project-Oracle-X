@@ -10,12 +10,17 @@ run: |
 
           for s in stocks:
               try:
-                  data = yf.download(s, period='5d', interval='1h', progress=False)
-                  # .iloc[-1] वापरून फक्त शेवटची किंमत नंबर (float) म्हणून घ्या
-                  price = float(data['Close'].iloc[-1])
-                  
-                  msg = f'🤖 Oracle Update: {s} सध्या ₹{price:.2f} वर आहे.'
-                  requests.get(f'https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={msg}')
+                  data = yf.download(s, period='1d', interval='1m', progress=False)
+                  if not data.empty:
+                      # शेवटची क्लोजिंग प्राईस काढण्याची सर्वात सुरक्षित पद्धत
+                      last_price = data['Close'].iloc[-1]
+                      # जर डेटा 'Series' असेल तर त्याचा पहिला आयटम घ्या
+                      price_val = float(last_price.iloc[0]) if hasattr(last_price, 'iloc') else float(last_price)
+                      
+                      msg = f'🤖 Oracle-X Alert\nStock: {s}\nPrice: ₹{price_val:.2f}'
+                      requests.get(f'https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={msg}')
+                  else:
+                      print(f'No data found for {s}')
               except Exception as e:
-                  print(f'Error for {s}: {e}')
+                  print(f'Error for {s}: {str(e)}')
           "
