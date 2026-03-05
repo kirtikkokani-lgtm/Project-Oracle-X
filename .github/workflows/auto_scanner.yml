@@ -1,0 +1,43 @@
+name: Oracle-X Auto Bot
+on:
+  schedule:
+    # भारतीय वेळेनुसार सोमवार ते शुक्रवार सकाळी ९:३० ते दुपारी ३:३० (UTC 4:00 to 10:00)
+    - cron: '0 4-10 * * 1-5'
+  workflow_dispatch: # मॅन्युअली रन करण्यासाठी बटन
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install yfinance pandas requests
+
+      - name: Run Market Scan
+        env:
+          TOKEN: ${{ secrets.TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: |
+          python -c "
+          import yfinance as yf
+          import requests
+          import os
+
+          stocks = ['RELIANCE.NS', 'TCS.NS', 'TATAMOTORS.NS', 'SBIN.NS']
+          token = os.getenv('TOKEN')
+          chat_id = os.getenv('CHAT_ID')
+
+          for s in stocks:
+              data = yf.download(s, period='5d', interval='1h', progress=False)
+              price = data['Close'].iloc[-1]
+              # सोपा लॉजिक (RSI ऐवजी सध्या Price चेक)
+              msg = f'🤖 Oracle Update: {s} सध्या ₹{price:.2f} वर आहे.'
+              requests.get(f'https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={msg}')
+          "
