@@ -35,7 +35,7 @@ def save_signal_to_db(ticker, price, rsi, signal):
     except Exception as e:
         st.error(f"Database Error: {e}")
 
-# डेटाबेस तयार करणे
+# डेटाबेस सुरू करणे
 init_db()
 
 # --- UTILITY FUNCTIONS ---
@@ -134,7 +134,7 @@ if st.button("🔄 Refresh History"):
     try:
         history_df = pd.read_sql_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 20", conn)
         st.dataframe(history_df, use_container_width=True)
-    except:
-        st.write("अजून कोणताही डेटा सेव्ह झालेला नाही.")
+    except Exception as e:
+        st.write("अजून कोणताही डेटा उपलब्ध नाही.")
     finally:
         conn.close()
