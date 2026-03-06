@@ -72,3 +72,28 @@ jobs:
           url = f'https://api.telegram.org/bot{token}/sendMessage'
           requests.post(url, data={'chat_id': chat_id, 'text': final_msg, 'parse_mode': 'Markdown'})
           "
+# ... (जुना कोड RSI पर्यंत तसाच ठेवा, फक्त खालील 'Prediction' लॉजिक जोडा)
+          
+          from sklearn.linear_model import LinearRegression
+          import numpy as np
+
+          def predict_price(series):
+              y = series.values.reshape(-1, 1)
+              X = np.arange(len(y)).reshape(-1, 1)
+              model = LinearRegression().fit(X, y)
+              next_day = np.array([[len(y)]])
+              return model.predict(next_day)[0][0]
+
+          # लूपच्या आत हे वापरा:
+          for s in stocks:
+              df = yf.download(s, period='15d', interval='1h', progress=False)
+              if not df.empty:
+                  price = float(df['Close'].iloc[-1])
+                  rsi = float(get_rsi(df['Close']).iloc[-1])
+                  prediction = predict_price(df['Close'])
+                  
+                  # दिशा (Trend) ठरवणे
+                  trend = '📈 UP' if prediction > price else '📉 DOWN'
+                  
+                  final_msg += f'*{s}*: ₹{price:.2f} | RSI: {rsi:.1f}\n'
+                  final_msg += f'🎯 Target: ₹{prediction:.2f} ({trend})\n\n'
