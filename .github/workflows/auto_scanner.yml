@@ -1,12 +1,12 @@
-name: Oracle-X Pro Scanner
+name: Oracle-X AI Pro Scanner
 on:
   schedule:
-    # सोमवार ते शुक्रवार: सकाळी १०:००, दुपारी १२:०० आणि दुपारी २:०० वाजता (IST)
-    - cron: '30 4,6,8 * * 1-5'
+    # सोमवार ते शुक्रवार: सकाळी १०:३० आणि दुपारी २:३० वाजता (IST)
+    - cron: '0 5,9 * * 1-5'
   workflow_dispatch: 
 
 jobs:
-  trading_bot:
+  ai_trading_bot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -18,9 +18,10 @@ jobs:
           python-version: '3.9'
 
       - name: Install Dependencies
-        run: pip install yfinance pandas requests
+        # आपण इथे scikit-learn आणि numpy जोडले आहे AI साठी
+        run: pip install yfinance pandas requests scikit-learn numpy
 
-      - name: Run Market Analysis
+      - name: Run AI Market Analysis
         env:
           TOKEN: ${{ secrets.TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
@@ -30,7 +31,10 @@ jobs:
           import pandas as pd
           import requests
           import os
+          import numpy as np
+          from sklearn.linear_model import LinearRegression
 
+          # १. RSI कॅल्क्युलेशन फंक्शन
           def get_rsi(series, window=14):
               delta = series.diff()
               gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
@@ -38,62 +42,46 @@ jobs:
               rs = gain / loss
               return 100 - (100 / (1 + rs))
 
+          # २. AI Price Prediction फंक्शन (Linear Regression)
+          def predict_next_price(series):
+              y = series.values.reshape(-1, 1)
+              X = np.arange(len(y)).reshape(-1, 1)
+              model = LinearRegression().fit(X, y)
+              next_index = np.array([[len(y)]])
+              return float(model.predict(next_index)[0][0])
+
           stocks = ['RELIANCE.NS', 'TCS.NS', 'TATAMOTORS.NS', 'SBIN.NS', 'INFY.NS', 'HDFCBANK.NS']
           token = os.getenv('TOKEN')
           chat_id = os.getenv('CHAT_ID')
           
-          final_msg = '🔮 *Oracle-X Smart Analysis* 🔮\n\n'
-          opportunities = []
-
+          final_msg = '🔮 *Oracle-X AI Intelligence* 🔮\n\n'
+          
           for s in stocks:
               try:
-                  # १ तासाचा डेटा विश्लेषण करण्यासाठी
+                  # ५ दिवसांचा १ तासाचा डेटा विश्लेषण करण्यासाठी
                   df = yf.download(s, period='5d', interval='1h', progress=False)
                   if not df.empty:
-                      price = float(df['Close'].iloc[-1])
-                      rsi = float(get_rsi(df['Close']).iloc[-1])
+                      current_price = float(df['Close'].iloc[-1])
+                      rsi_val = float(get_rsi(df['Close']).iloc[-1])
+                      target_price = predict_next_price(df['Close'])
                       
-                      # सिग्नल ठरवणे
-                      status = 'Neutral ⚪'
-                      if rsi < 35: 
-                          status = 'BUY 🚀 (Oversold)'
-                          opportunities.append(f'✅ *{s}* looks cheap at ₹{price:.2f}')
-                      elif rsi > 70: 
-                          status = 'SELL 🔥 (Overbought)'
-                          opportunities.append(f'⚠️ *{s}* is overbought at ₹{price:.2f}')
+                      # सिग्नल लॉजिक
+                      trend = '📈 BULLISH' if target_price > current_price else '📉 BEARISH'
+                      signal = 'Neutral ⚪'
+                      if rsi_val < 35: signal = 'BUY 🚀 (Oversold)'
+                      elif rsi_val > 70: signal = 'SELL 🔥 (Overbought)'
                       
-                      final_msg += f'*{s}*: ₹{price:.2f} | RSI: {rsi:.1f} | {status}\n'
-              except:
+                      # मेसेज फॉरमॅटिंग
+                      final_msg += f'*{s}*\n'
+                      final_msg += f'💰 Price: ₹{current_price:.2f}\n'
+                      final_msg += f'📊 RSI: {rsi_val:.1f} | {signal}\n'
+                      final_msg += f'🎯 AI Target: ₹{target_price:.2f} ({trend})\n'
+                      final_msg += '----------------------------\n'
+              except Exception as e:
+                  print(f'Error for {s}: {e}')
                   continue
 
-          if opportunities:
-              final_msg += '\n💡 *Top Opportunities:* \n' + '\n'.join(opportunities)
-
+          # टेलिग्रामला मेसेज पाठवणे
           url = f'https://api.telegram.org/bot{token}/sendMessage'
           requests.post(url, data={'chat_id': chat_id, 'text': final_msg, 'parse_mode': 'Markdown'})
           "
-# ... (जुना कोड RSI पर्यंत तसाच ठेवा, फक्त खालील 'Prediction' लॉजिक जोडा)
-          
-          from sklearn.linear_model import LinearRegression
-          import numpy as np
-
-          def predict_price(series):
-              y = series.values.reshape(-1, 1)
-              X = np.arange(len(y)).reshape(-1, 1)
-              model = LinearRegression().fit(X, y)
-              next_day = np.array([[len(y)]])
-              return model.predict(next_day)[0][0]
-
-          # लूपच्या आत हे वापरा:
-          for s in stocks:
-              df = yf.download(s, period='15d', interval='1h', progress=False)
-              if not df.empty:
-                  price = float(df['Close'].iloc[-1])
-                  rsi = float(get_rsi(df['Close']).iloc[-1])
-                  prediction = predict_price(df['Close'])
-                  
-                  # दिशा (Trend) ठरवणे
-                  trend = '📈 UP' if prediction > price else '📉 DOWN'
-                  
-                  final_msg += f'*{s}*: ₹{price:.2f} | RSI: {rsi:.1f}\n'
-                  final_msg += f'🎯 Target: ₹{prediction:.2f} ({trend})\n\n'
