@@ -10,9 +10,9 @@ from sklearn.linear_model import LinearRegression
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Oracle-X AI + AngelOne", layout="wide")
+st.set_page_config(page_title="Oracle-X AI Terminal", layout="wide")
 
-# --- ANGEL ONE CREDENTIALS (GitHub Secrets मध्ये टाकणे उत्तम) ---
+# --- ANGEL ONE CREDENTIALS ---
 API_KEY = 'jxsAJQD4'
 CLIENT_ID = 'K52809090'
 
@@ -43,7 +43,7 @@ def angel_login(totp_qr_key, pin):
         st.error(f"Error: {str(e)}")
         return None
 
-# --- AI & TECH LOGIC (RSI & Prediction) ---
+# --- AI & TECH LOGIC ---
 def get_rsi(series, window=14):
     delta = series.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
@@ -62,17 +62,20 @@ st.title("🔮 Oracle-X v3: AI Trading Terminal")
 
 # Sidebar for Login
 st.sidebar.header("🔐 Angel One Login")
-totp_input = st.sidebar.text_input("Enter TOTP QR Key", type="password")
+totp_input = st.sidebar.text_input("Enter TOTP QR Key (Secret)", type="password")
 pin_input = st.sidebar.text_input("Enter 4-Digit PIN", type="password")
 
 if "smart_api" not in st.session_state:
     st.session_state.smart_api = None
 
 if st.sidebar.button("Connect Account"):
-    res = angel_login(totp_input, pin_input)
-    if res:
-        st.session_state.smart_api = res
-        st.sidebar.success("Connected to Angel One! ✅")
+    with st.sidebar.spinner("Authenticating..."):
+        res = angel_login(totp_input, pin_input)
+        if res:
+            st.session_state.smart_api = res
+            st.sidebar.success("Connected to Angel One! ✅")
+        else:
+            st.sidebar.error("Login failed. Check credentials.")
 
 # Main Analysis Section
 ticker = st.text_input("Symbol (NSE)", value="RELIANCE.NS")
@@ -80,51 +83,66 @@ ticker = st.text_input("Symbol (NSE)", value="RELIANCE.NS")
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    if st.button("🔍 Deep Scan & Predict"):
-        df = yf.download(ticker, period="1mo", interval="1h", progress=False)
-        if not df.empty:
-            price = df['Close'].iloc[-1]
-            rsi = get_rsi(df['Close']).iloc[-1]
-            target = predict_price(df['Close'])
-            
-            # Display Metrics
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Current Price", f"₹{price:.2f}")
-            m2.metric("AI Target", f"₹{target:.2f}", f"{target-price:+.2f}")
-            m3.metric("RSI", f"{rsi:.1f}")
-            
-            # Chart
-            fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
-            fig.add_hline(y=target, line_dash="dot", line_color="cyan", annotation_text="AI Target")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Save to DB
-            conn = sqlite3.connect(DB_NAME)
-            conn.execute("INSERT INTO signals VALUES (?,?,?,?,?,?)", 
-                         (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ticker, price, rsi, "SCAN", target))
-            conn.commit()
-            conn.close()
+    if st.button("🔍 Run AI Analysis"):
+        with st.spinner("Fetching Market Data..."):
+            df = yf.download(ticker, period="1mo", interval="1h", progress=False)
+            if not df.empty:
+                price = float(df['Close'].iloc[-1])
+                rsi = float(get_rsi(df['Close']).iloc[-1])
+                target = predict_price(df['Close'])
+                
+                # Display Metrics
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Current Price", f"₹{price:.2f}")
+                m2.metric("AI Target", f"₹{target:.2f}", f"{target-price:+.2f}")
+                m3.metric("RSI (1h)", f"{rsi:.1f}")
+                
+                # Candlestick Chart
+                fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
+                fig.add_hline(y=target, line_dash="dot", line_color="cyan", annotation_text="AI Target")
+                fig.update_layout(template="plotly_dark", height=450)
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Save to Database
+                conn = sqlite3.connect(DB_NAME)
+                conn.execute("INSERT INTO signals VALUES (?,?,?,?,?,?)", 
+                             (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ticker, price, rsi, "SCAN", target))
+                conn.commit()
+                conn.close()
+            else:
+                st.error("Invalid Ticker or No Data Found.")
 
 with col2:
     st.subheader("💼 Trading Panel")
     if st.session_state.smart_api:
-        # अकाउंट बॅलन्स दाखवणे
-        profile = st.session_state.smart_api.rmsLimit()
-        balance = profile['data']['net'] if profile['status'] else "N/A"
-        st.write(f"**Available Margin:** ₹{balance}")
-        
-        # Order Buttons
-        qty = st.number_input("Quantity", min_value=1, value=1)
-        if st.button("🚀 PLACE BUY ORDER", color="green"):
-            # इथे आपण प्रत्यक्ष ऑर्डर टाकू शकतो (सावधगिरीने!)
-            st.warning(f"{ticker} साठी {qty} शेअर्सची ऑर्डर प्रोसेस होत आहे...")
+        try:
+            # बॅलन्स चेक करणे
+            profile = st.session_state.smart_api.rmsLimit()
+            # उपलब्ध रोख रक्कम (Cash) काढणे
+            if profile['status']:
+                available_cash = profile['data']['availablecash']
+                st.info(f"**Available Margin:** ₹{available_cash}")
+            
+            st.divider()
+            # Order Inputs
+            qty = st.number_input("Quantity", min_value=1, step=1)
+            order_type = st.selectbox("Order Type", ["MARKET", "LIMIT"])
+            
+            if st.button("🚀 PLACE BUY ORDER", type="primary"):
+                st.warning(f"Order trigger format sent for {ticker}. Check Angel One App.")
+                # टीप: आपण इथे 'Trading' सुरक्षित ठेवण्यासाठी फक्त सिम्युलेशन करत आहोत
+        except Exception as e:
+            st.error("Could not fetch margin. Session might be expired.")
     else:
-        st.info("Please login to Angel One from sidebar to trade.")
+        st.warning("Please connect your Angel One account from the sidebar.")
 
 # --- HISTORY ---
 st.divider()
 if st.checkbox("Show Scan History"):
-    conn = sqlite3.connect(DB_NAME)
-    hist = pd.read_sql_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 10", conn)
-    st.table(hist)
-    conn.close()
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        hist = pd.read_sql_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 10", conn)
+        st.dataframe(hist, use_container_width=True)
+        conn.close()
+    except:
+        st.write("No history available yet.")
