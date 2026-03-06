@@ -9,3 +9,5 @@ scikit-learn
 numpy
 smartapi-python
 pyotp
+logzero
+websocket-client
