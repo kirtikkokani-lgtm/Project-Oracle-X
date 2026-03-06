@@ -11,18 +11,17 @@ import sqlite3
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Oracle-X Master AI", layout="wide")
+st.set_page_config(page_title="Oracle-X Master AI v2", layout="wide")
 analyzer = SentimentIntensityAnalyzer()
 
-# --- DATABASE SETUP (With Auto-Fix for Columns) ---
+# --- DATABASE SETUP (V2) ---
+# आपण नाव बदलले जेणेकरून ५ कॉलमची एरर येणार नाही
+DB_NAME = 'oracle_v2.db'
+
 def init_db():
-    conn = sqlite3.connect('oracle_data.db')
+    conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    
-    # जर जुने टेबल ५ कॉलम्सचे असेल, तर त्याला डिलीट करून नवीन ६ कॉलम्सचे टेबल बनवण्यासाठी:
-    # जर तुम्हाला तुमचा जुना डेटा नको असेल, तर खालील ओळ एकदाच 'Uncomment' करा (# काढून टाका)
-    # c.execute('DROP TABLE IF EXISTS signals') 
-    
+    # नवीन स्ट्रक्चर: ६ कॉलम्स (Timestamp, Ticker, Price, RSI, Signal, Target)
     c.execute('''CREATE TABLE IF NOT EXISTS signals 
                  (timestamp TEXT, ticker TEXT, price REAL, rsi REAL, signal TEXT, target REAL)''')
     conn.commit()
@@ -30,18 +29,18 @@ def init_db():
 
 def save_signal_to_db(ticker, price, rsi, signal, target):
     try:
-        conn = sqlite3.connect('oracle_data.db')
+        conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # इथे आपण बरोबर ६ व्हॅल्यूज (?) देत आहोत
+        # बरोबर ६ व्हॅल्यूज (?) आहेत
         c.execute("INSERT INTO signals VALUES (?, ?, ?, ?, ?, ?)", 
                   (now, ticker, price, rsi, signal, target))
         conn.commit()
         conn.close()
     except Exception as e:
         st.error(f"❌ Database Error: {e}")
-        st.info("टीप: जर '5 columns' एरर येत असेल, तर init_db मधील DROP TABLE ओळ चालू करा किंवा .db फाईल डिलीट करा.")
 
+# डेटाबेस सुरू करणे
 init_db()
 
 # --- AI & TECHNICAL FUNCTIONS ---
@@ -70,7 +69,7 @@ def get_live_news(stock_name):
     except: return []
 
 # --- UI LAYOUT ---
-st.title("🔮 Oracle-X: AI Intelligence Dashboard")
+st.title("🔮 Oracle-X: AI Intelligence Dashboard v2")
 st.sidebar.header("🕹️ Control Room")
 
 ticker = st.sidebar.text_input("Enter Ticker (NSE)", value="RELIANCE.NS")
@@ -94,40 +93,41 @@ if st.sidebar.button("🤖 Run AI Deep Scan"):
             if rsi_val < 40: signal = "BUY 🚀"
             elif rsi_val > 70: signal = "SELL 🔥"
             
-            # --- महत्वाचे: डेटाबेसमध्ये सेव्ह करणे ---
+            # डेटाबेसमध्ये ६ व्हॅल्यूज सेव्ह करणे
             save_signal_to_db(ticker, curr_price, rsi_val, signal, target_price)
             
-            # UI Display Metrics
+            # UI Metrics
             col1, col2, col3 = st.columns(3)
             col1.metric("Current Price", f"₹{curr_price:.2f}")
             col2.metric("AI Target", f"₹{target_price:.2f}", f"{target_price-curr_price:+.2f}")
             col3.metric("RSI (1h)", f"{rsi_val:.1f}")
 
-            # Plotting Candlestick Chart
+            # Candlestick Chart
             fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
-            fig.add_hline(y=target_price, line_dash="dot", line_color="green", annotation_text="AI Prediction")
+            fig.add_hline(y=target_price, line_dash="dot", line_color="green", annotation_text="AI Predicted Target")
             st.plotly_chart(fig, use_container_width=True)
             
-            st.subheader(f"Strategy Signal: {signal}")
-            st.write(f"**Sentiment Score:** {sentiment:.2f}")
+            st.subheader(f"AI Strategy Signal: {signal}")
+            st.write(f"**Market Sentiment Score:** {sentiment:.2f}")
         else:
             st.error("Data not found. Please check the ticker name.")
 
-# --- ACTION: VIEW STORED HISTORY ---
+# --- ACTION: VIEW HISTORY ---
 st.divider()
-st.subheader("📜 AI Signal History & Database Logs")
-if st.button("🔄 Refresh History"):
-    conn = sqlite3.connect('oracle_data.db')
+st.subheader("📜 Database History (v2)")
+if st.button("🔄 Refresh Data"):
+    conn = sqlite3.connect(DB_NAME)
     try:
         history_df = pd.read_sql_query("SELECT * FROM signals ORDER BY timestamp DESC", conn)
         if not history_df.empty:
             st.dataframe(history_df, use_container_width=True)
             
-            # Comparison Chart: Price vs Target
+            # Performance Graph
+            st.write("📈 Price vs AI Target Trend")
             st.line_chart(history_df.set_index('timestamp')[['price', 'target']])
         else:
-            st.info("अजून कोणताही डेटा सेव्ह झालेला नाही.")
+            st.info("डेटाबेस रिकामा आहे. आधी 'Deep Scan' रन करा.")
     except Exception as e:
-        st.error(f"History Error: {e}")
+        st.error(f"Error fetching data: {e}")
     finally:
         conn.close()
