@@ -1,16 +1,48 @@
-run: |
+name: Oracle-X Auto Bot
+on:
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install requests yfinance pandas
+
+      - name: Run Debug Scan
+        env:
+          TOKEN: ${{ secrets.TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: |
           python -c "
-          import yfinance as yf
           import requests
           import os
+          import yfinance as yf
 
           token = os.getenv('TOKEN')
           chat_id = os.getenv('CHAT_ID')
+
+          print(f'Using Token starting with: {token[:5]}...')
+          print(f'Using Chat ID: {chat_id}')
+
+          # १. आधी फक्त एक टेस्ट मेसेज पाठवून बघू
+          test_msg = '🚨 Oracle-X Live Test: Connection Active!'
+          url = f'https://api.telegram.org/bot{token}/sendMessage'
+          resp = requests.post(url, data={'chat_id': chat_id, 'text': test_msg})
           
-          # टेस्टिंगसाठी एक मेसेज
-          test_url = f'https://api.telegram.org/bot{token}/sendMessage'
-          params = {'chat_id': chat_id, 'text': '🚨 Oracle-X Connection Test Success!'}
-          
-          response = requests.get(test_url, params=params)
-          print(f'Telegram Response: {response.json()}') # हे आपल्याला चुका शोधायला मदत करेल
+          print(f'Telegram Status Code: {resp.status_code}')
+          print(f'Telegram Response: {resp.text}')
+
+          if resp.status_code == 200:
+              print('✅ Test Message Sent Successfully!')
+          else:
+              print('❌ Failed to send message. Check Token or Chat ID.')
           "
