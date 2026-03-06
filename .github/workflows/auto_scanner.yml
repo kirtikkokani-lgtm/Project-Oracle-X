@@ -4,23 +4,13 @@ run: |
           import requests
           import os
 
-          stocks = ['RELIANCE.NS', 'TCS.NS', 'TATAMOTORS.NS', 'SBIN.NS']
           token = os.getenv('TOKEN')
           chat_id = os.getenv('CHAT_ID')
-
-          for s in stocks:
-              try:
-                  data = yf.download(s, period='1d', interval='1m', progress=False)
-                  if not data.empty:
-                      # शेवटची क्लोजिंग प्राईस काढण्याची सर्वात सुरक्षित पद्धत
-                      last_price = data['Close'].iloc[-1]
-                      # जर डेटा 'Series' असेल तर त्याचा पहिला आयटम घ्या
-                      price_val = float(last_price.iloc[0]) if hasattr(last_price, 'iloc') else float(last_price)
-                      
-                      msg = f'🤖 Oracle-X Alert\nStock: {s}\nPrice: ₹{price_val:.2f}'
-                      requests.get(f'https://api.telegram.org/bot{token}/sendMessage?chat_id={chat_id}&text={msg}')
-                  else:
-                      print(f'No data found for {s}')
-              except Exception as e:
-                  print(f'Error for {s}: {str(e)}')
+          
+          # टेस्टिंगसाठी एक मेसेज
+          test_url = f'https://api.telegram.org/bot{token}/sendMessage'
+          params = {'chat_id': chat_id, 'text': '🚨 Oracle-X Connection Test Success!'}
+          
+          response = requests.get(test_url, params=params)
+          print(f'Telegram Response: {response.json()}') # हे आपल्याला चुका शोधायला मदत करेल
           "
