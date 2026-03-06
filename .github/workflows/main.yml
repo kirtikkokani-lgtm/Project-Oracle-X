@@ -1,0 +1,13 @@
+name: Oracle-X Auto Bot
+on:
+  workflow_dispatch: # हे बटन मॅन्युअली रन करण्यासाठी
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Run Test
+        run: echo "Bot is starting..."
