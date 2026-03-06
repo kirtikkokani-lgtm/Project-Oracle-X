@@ -7,7 +7,5 @@ requests
 beautifulsoup4
 scikit-learn
 numpy
-pip install smartapi-python pyotp
 smartapi-python
 pyotp
-
