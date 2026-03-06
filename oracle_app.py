@@ -18,7 +18,9 @@ analyzer = SentimentIntensityAnalyzer()
 def init_db():
     conn = sqlite3.connect('oracle_data.db')
     c = conn.cursor()
-    # सिग्नल्स आणि प्रेडिक्शन सेव्ह करण्यासाठी टेबल
+    # जुने टेबल काढून नवीन तयार करण्यासाठी ही ओळ वापरा (फक्त एकदाच)
+    # c.execute('DROP TABLE IF EXISTS signals') 
+    
     c.execute('''CREATE TABLE IF NOT EXISTS signals 
                  (timestamp TEXT, ticker TEXT, price REAL, rsi REAL, signal TEXT, target REAL)''')
     conn.commit()
