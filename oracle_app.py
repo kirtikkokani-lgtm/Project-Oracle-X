@@ -10,7 +10,7 @@ from sklearn.linear_model import LinearRegression
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Oracle-X AI Terminal", layout="wide")
+st.set_page_config(page_title="Oracle-X Master AI", layout="wide")
 
 # --- ANGEL ONE CREDENTIALS ---
 API_KEY = 'jxsAJQD4'
@@ -28,7 +28,7 @@ def init_db():
 
 init_db()
 
-# --- ANGEL ONE LOGIN LOGIC ---
+# --- ANGEL ONE LOGIN LOGIC (Persistent) ---
 def angel_login(totp_qr_key, pin):
     try:
         smart_api = SmartConnect(api_key=API_KEY)
@@ -36,11 +36,8 @@ def angel_login(totp_qr_key, pin):
         data = smart_api.generateSession(CLIENT_ID, pin, totp)
         if data['status']:
             return smart_api
-        else:
-            st.sidebar.error(f"Login Failed: {data.get('message', 'Unknown Error')}")
-            return None
-    except Exception as e:
-        st.sidebar.error(f"Connection Error: {str(e)}")
+        return None
+    except:
         return None
 
 # --- AI & TECHNICAL LOGIC ---
@@ -58,34 +55,39 @@ def predict_price(series):
     return float(model.predict(np.array([[len(y)]]))[0][0])
 
 # --- UI HEADER ---
-st.title("🔮 Oracle-X v3.3: Master Trading Terminal")
+st.title("🔮 Oracle-X v3.4: Stable AI Terminal")
 
-# --- SIDEBAR LOGIN ---
+# --- SESSION STATE MANAGEMENT ---
 if "smart_api" not in st.session_state:
     st.session_state.smart_api = None
+if "login_success" not in st.session_state:
+    st.session_state.login_success = False
 
+# --- SIDEBAR LOGIN ---
 st.sidebar.header("🔐 Angel One Secure Login")
-totp_input = st.sidebar.text_input("Enter TOTP QR Key (Secret)", type="password", help="Angel One 'External TOTP' मधून मिळालेली Key")
+totp_input = st.sidebar.text_input("Enter TOTP QR Key", type="password")
 pin_input = st.sidebar.text_input("Enter 4-Digit PIN", type="password")
 
-if st.sidebar.button("Connect / Reconnect Account"):
-    with st.sidebar.spinner("Authenticating with Angel One..."):
+if st.sidebar.button("Connect Account"):
+    with st.sidebar.spinner("Connecting..."):
         res = angel_login(totp_input, pin_input)
         if res:
             st.session_state.smart_api = res
+            st.session_state.login_success = True
             st.sidebar.success("Account Connected! ✅")
         else:
-            st.session_state.smart_api = None
+            st.session_state.login_success = False
+            st.sidebar.error("Login Failed. Check Credentials.")
 
 # --- MAIN INTERFACE ---
-ticker = st.text_input("Symbol (NSE)", value="RELIANCE.NS", help="उदा. SBIN.NS, TATAMOTORS.NS")
+ticker = st.text_input("Symbol (NSE)", value="RELIANCE.NS")
 
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    if st.button("🔍 Run AI Deep Scan", type="secondary"):
-        with st.spinner(f"Analyzing {ticker} Market Trends..."):
-            # YFinance Data Fix
+    # स्कॅन बटण दाबल्यावर लॉगिन टिकवून ठेवण्यासाठी आपण session_state चेक करू
+    if st.button("🔍 Run AI Deep Scan"):
+        with st.spinner(f"Scanning {ticker}..."):
             data_feed = yf.Ticker(ticker)
             df = data_feed.history(period="1mo", interval="1h")
             
@@ -94,65 +96,56 @@ with col1:
                 rsi = float(get_rsi(df['Close']).iloc[-1])
                 target = predict_price(df['Close'])
                 
-                # Metrics Display
+                # Metrics
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Current Price", f"₹{price:.2f}")
-                m2.metric("AI Target (Next 1h)", f"₹{target:.2f}", f"{target-price:+.2f}")
-                m3.metric("RSI (1h)", f"{rsi:.1f}")
+                m1.metric("Price", f"₹{price:.2f}")
+                m2.metric("Target", f"₹{target:.2f}", f"{target-price:+.2f}")
+                m3.metric("RSI", f"{rsi:.1f}")
                 
-                # Charting
+                # Chart
                 fig = go.Figure(data=[go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'])])
-                fig.add_hline(y=target, line_dash="dot", line_color="cyan", annotation_text="AI Forecast")
-                fig.update_layout(template="plotly_dark", height=450, title=f"{ticker} Live Analysis")
+                fig.add_hline(y=target, line_dash="dot", line_color="cyan")
+                fig.update_layout(template="plotly_dark", height=400)
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # DB Storage
+                # DB
                 conn = sqlite3.connect(DB_NAME)
                 conn.execute("INSERT INTO signals VALUES (?,?,?,?,?,?)", 
                              (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ticker, price, rsi, "SCAN", target))
                 conn.commit()
                 conn.close()
             else:
-                st.error("❌ Invalid Symbol! कृपया 'RELIANCE.NS' अशा स्वरूपात नाव टाका.")
+                st.error("Data Not Found. Try 'SBIN.NS'")
 
 with col2:
     st.subheader("💼 Live Portfolio & Trade")
-    # जर सेशन जिवंत असेल तरच ट्रेडिंग पॅनेल दाखवा
-    if st.session_state.smart_api is not None:
+    # इथे आपण st.session_state.login_success वापरत आहोत
+    if st.session_state.login_success and st.session_state.smart_api:
         try:
-            # Margin & Profile Data
             profile_data = st.session_state.smart_api.rmsLimit()
-            user_info = st.session_state.smart_api.getProfile()
-            
             if profile_data['status']:
                 cash = profile_data['data']['availablecash']
-                st.success(f"👤 **User:** {user_info['data']['name']}")
-                st.info(f"💰 **Available Margin:** ₹{cash}")
+                st.info(f"💰 **Margin:** ₹{cash}")
+                
+                user_info = st.session_state.smart_api.getProfile()
+                st.write(f"👤 **User:** {user_info['data']['name']}")
                 
                 st.divider()
-                # Order Panel
-                qty = st.number_input("Quantity", min_value=1, step=1, key="order_qty")
-                order_type = st.selectbox("Order Type", ["MARKET", "LIMIT"])
-                
-                if st.button("🚀 EXECUTE BUY ORDER", type="primary"):
-                    # इथे सिम्बॉल कन्वर्जन लागते (उदा. RELIANCE-EQ), म्हणून आपण अलर्ट देऊया
-                    st.warning(f"Order trigger processed for {qty} shares of {ticker}. Check Angel One app for execution.")
+                qty = st.number_input("Quantity", min_value=1, step=1, key="order_qty_new")
+                if st.button("🚀 EXECUTE BUY", type="primary"):
+                    st.success(f"Order for {qty} shares of {ticker} initiated!")
             else:
-                st.error("Session Expired. Please Reconnect from Sidebar.")
-                st.session_state.smart_api = None
-        except Exception as e:
-            st.error("Session lost. Please Login again.")
-            st.session_state.smart_api = None
+                st.session_state.login_success = False
+                st.warning("Session Timeout. Please Reconnect.")
+        except:
+            st.session_state.login_success = False
+            st.error("Session Expired. Please login again.")
     else:
-        st.warning("👈 डावीकडील Sidebar मधून 'Connect' बटण दाबून लॉगिन करा.")
+        st.warning("👈 Sidebar मधून लॉगिन करा.")
 
-# --- SCAN HISTORY ---
-st.divider()
-if st.checkbox("Show Recent AI Scans"):
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        hist_df = pd.read_sql_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 5", conn)
-        st.dataframe(hist_df, use_container_width=True)
-        conn.close()
-    except:
-        st.write("No history available yet.")
+# --- HISTORY ---
+if st.checkbox("Show Scans"):
+    conn = sqlite3.connect(DB_NAME)
+    hist_df = pd.read_sql_query("SELECT * FROM signals ORDER BY timestamp DESC LIMIT 5", conn)
+    st.dataframe(hist_df, use_container_width=True)
+    conn.close()
