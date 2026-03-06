@@ -1,9 +1,12 @@
-name: Oracle-X Auto Bot
+name: Oracle-X Pro Scanner
 on:
+  schedule:
+    # सोमवार ते शुक्रवार: सकाळी १०:००, दुपारी १२:०० आणि दुपारी २:०० वाजता (IST)
+    - cron: '30 4,6,8 * * 1-5'
   workflow_dispatch: 
 
 jobs:
-  build:
+  trading_bot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -15,34 +18,57 @@ jobs:
           python-version: '3.9'
 
       - name: Install Dependencies
-        run: pip install requests yfinance pandas
+        run: pip install yfinance pandas requests
 
-      - name: Run Debug Scan
+      - name: Run Market Analysis
         env:
           TOKEN: ${{ secrets.TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: |
           python -c "
+          import yfinance as yf
+          import pandas as pd
           import requests
           import os
-          import yfinance as yf
 
+          def get_rsi(series, window=14):
+              delta = series.diff()
+              gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+              loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+              rs = gain / loss
+              return 100 - (100 / (1 + rs))
+
+          stocks = ['RELIANCE.NS', 'TCS.NS', 'TATAMOTORS.NS', 'SBIN.NS', 'INFY.NS', 'HDFCBANK.NS']
           token = os.getenv('TOKEN')
           chat_id = os.getenv('CHAT_ID')
-
-          print(f'Using Token starting with: {token[:5]}...')
-          print(f'Using Chat ID: {chat_id}')
-
-          # १. आधी फक्त एक टेस्ट मेसेज पाठवून बघू
-          test_msg = '🚨 Oracle-X Live Test: Connection Active!'
-          url = f'https://api.telegram.org/bot{token}/sendMessage'
-          resp = requests.post(url, data={'chat_id': chat_id, 'text': test_msg})
           
-          print(f'Telegram Status Code: {resp.status_code}')
-          print(f'Telegram Response: {resp.text}')
+          final_msg = '🔮 *Oracle-X Smart Analysis* 🔮\n\n'
+          opportunities = []
 
-          if resp.status_code == 200:
-              print('✅ Test Message Sent Successfully!')
-          else:
-              print('❌ Failed to send message. Check Token or Chat ID.')
+          for s in stocks:
+              try:
+                  # १ तासाचा डेटा विश्लेषण करण्यासाठी
+                  df = yf.download(s, period='5d', interval='1h', progress=False)
+                  if not df.empty:
+                      price = float(df['Close'].iloc[-1])
+                      rsi = float(get_rsi(df['Close']).iloc[-1])
+                      
+                      # सिग्नल ठरवणे
+                      status = 'Neutral ⚪'
+                      if rsi < 35: 
+                          status = 'BUY 🚀 (Oversold)'
+                          opportunities.append(f'✅ *{s}* looks cheap at ₹{price:.2f}')
+                      elif rsi > 70: 
+                          status = 'SELL 🔥 (Overbought)'
+                          opportunities.append(f'⚠️ *{s}* is overbought at ₹{price:.2f}')
+                      
+                      final_msg += f'*{s}*: ₹{price:.2f} | RSI: {rsi:.1f} | {status}\n'
+              except:
+                  continue
+
+          if opportunities:
+              final_msg += '\n💡 *Top Opportunities:* \n' + '\n'.join(opportunities)
+
+          url = f'https://api.telegram.org/bot{token}/sendMessage'
+          requests.post(url, data={'chat_id': chat_id, 'text': final_msg, 'parse_mode': 'Markdown'})
           "
